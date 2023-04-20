@@ -123,6 +123,7 @@ conn, addr = sock.accept()
 # loop forever
 while True:
     command = conn.recv(1024).decode()
+    print(f'receive command {command} from {addr}')
     if command == 'forward' : 
         forward()
         response = 'forward processed successfully'
@@ -141,7 +142,9 @@ while True:
         conn.sendall(response.encode())
     else: 
         break
+
 conn.close()
+print("Connection Close !!!")
    #  print(raw_request)
 
 
