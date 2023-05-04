@@ -1,33 +1,29 @@
 import cortex
 from cortex import Cortex
+import socket
 
 
-class LiveAdvance:
-    """
-    A class to show mental command data at live mode of trained profile.
-    You can load a profile trained on EmotivBCI or via train.py example
+# init bci connection with cortex
+bci_client_id = "vM1pkIlN5DjGKwgtQKto49fG50CnS5yKgrp1g2Ve"
+bci_client_secret = "rPbxdGZs2Amh1YRSNeKRabNaaN0rJMQLwE2ZLGSQBMk5cT6fY1VZtL3cGdzSXfHKqm04eGXccBIBLKLpwjwTHTSolu9hUWhPn7wSfL0r6mwOXjtTyhzEEdz6MQ0sOiVD"
 
-    Attributes
-    ----------
-    c : Cortex
-        Cortex communicate with Emotiv Cortex Service
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    Methods
-    -------
-    start():
-        To start a live mental command  process from starting a websocket
-    load_profile(profile_name):
-        To load an existed profile or create new profile for training
-    unload_profile(profile_name):
-        To unload an existed profile or create new profile for training
-    get_active_action(profile_name):
-        To get active actions for the mental command detection.
-    get_sensitivity(profile_name):
-        To get the sensitivity of the 4 active mental command actions.
-    set_sensitivity(profile_name):
-        To set the sensitivity of the 4 active mental command actions.
-    """
+host = "172.20.10.8"  # replace with hotspot IP address
 
+# set the port number
+port = 58707
+
+
+# send command function
+def send_command(s: socket, command):
+    s.sendall(command.encode())
+    print(f"Sent command: {command}")
+    response = s.recv(1024).decode()
+    print(response)
+
+
+class StreamCommand:
     def __init__(self, app_client_id, app_client_secret, **kwargs):
         self.c = Cortex(app_client_id, app_client_secret, debug_mode=False, **kwargs)
         self.c.bind(create_session_done=self.on_create_session_done)
@@ -40,23 +36,6 @@ class LiveAdvance:
         self.c.bind(inform_error=self.on_inform_error)
 
     def start(self, profile_name, headsetId=""):
-        """
-        To start live process as below workflow
-        (1) check access right -> authorize -> connect headset->create session
-        (2) query profile -> get current profile -> load/create profile
-        (3) get MC active action -> get MC sensitivity -> set new MC sensitivity -> save profile
-        (4) subscribe 'com' data to show live MC data
-        Parameters
-        ----------
-        profile_name : string, required
-            name of profile
-        headsetId: string , optional
-             id of wanted headet which you want to work with it.
-             If the headsetId is empty, the first headset in list will be set as wanted headset
-        Returns
-        -------
-        None
-        """
         if profile_name == "":
             raise ValueError("Empty profile_name. The profile_name cannot be empty.")
 
@@ -70,121 +49,63 @@ class LiveAdvance:
         # print('hi')
 
     def load_profile(self, profile_name):
-        """
-        To load a profile
-
-        Parameters
-        ----------
-        profile_name : str, required
-            profile name
-
-        Returns
-        -------
-        None
-        """
         self.c.setup_profile(profile_name, "load")
 
     def unload_profile(self, profile_name):
-        """
-        To unload a profile
-        Parameters
-        ----------
-        profile_name : str, required
-            profile name
-
-        Returns
-        -------
-        None
-        """
         self.c.setup_profile(profile_name, "unload")
 
     def save_profile(self, profile_name):
-        """
-        To save a profile
-
-        Parameters
-        ----------
-        profile_name : str, required
-            profile name
-
-        Returns
-        -------
-        None
-        """
         self.c.setup_profile(profile_name, "save")
 
     def subscribe_data(self, streams):
-        """
-        To subscribe to one or more data streams
-        'com': Mental command
-        'fac' : Facial expression
-        'sys': training event
-
-        Parameters
-        ----------
-        streams : list, required
-            list of streams. For example, ['sys']
-
-        Returns
-        -------
-        None
-        """
         self.c.sub_request(streams)
 
     def get_active_action(self, profile_name):
-        """
-        To get active actions for the mental command detection.
-        Maximum 4 mental command actions are actived. This doesn't include "neutral"
-
-        Parameters
-        ----------
-        profile_name : str, required
-            profile name
-
-        Returns
-        -------
-        None
-        """
         self.c.get_mental_command_active_action(profile_name)
 
     def get_sensitivity(self, profile_name):
-        """
-        To get the sensitivity of the 4 active mental command actions. This doesn't include "neutral"
-        It will return arrays of 4 numbers, range 1 - 10
-        The order of the values must follow the order of the active actions, as returned by mentalCommandActiveAction
-        If the number of active actions < 4, the rest numbers are ignored.
-
-        Parameters
-        ----------
-        profile_name : str, required
-            profile name
-
-        Returns
-        -------
-        None
-        """
         self.c.get_mental_command_action_sensitivity(profile_name)
 
     def set_sensitivity(self, profile_name, values):
-        """
-        To set the sensitivity of the 4 active mental command actions. This doesn't include "neutral".
-        The order of the values must follow the order of the active actions, as returned by mentalCommandActiveAction
-
-        Parameters
-        ----------
-        profile_name : str, required
-            profile name
-        values: list, required
-            list of sensitivity values. The range is from 1 (lowest sensitivy) - 10 (higest sensitivity)
-            For example: [neutral, push, pull, lift, drop] -> sensitivity [7, 8, 3, 6] <=> push : 7 , pull: 8, lift: 3, drop:6
-                         [neutral, push, pull] -> sensitivity [7, 8, 5, 5] <=> push : 7 , pull: 8  , others resvered
-
-
-        Returns
-        -------
-        None
-        """
         self.c.set_mental_command_action_sensitivity(profile_name, values)
+
+    # set default value for filtered command
+
+    is_moving = False
+    avg_power = 0.5280443742514973
+    action_con = 0
+
+    def filter_command(self, action, power):
+        # type of action available
+        action_type = ["push", "right", "left"]
+
+        # send command part
+
+        print("is_moving: ", self.is_moving)
+        # when the car is not moving
+        if not self.is_moving:
+            # if action have morepower than the avg power, action count +1
+            if action in action_type and power >= self.avg_power:
+                self.action_con += 1
+            print("action_con: ", self.action_con)
+
+            # if action changed from previous action or power less than avg power, reset action
+            if action == "neutral" or power < self.avg_power:
+                self.action_con = 0
+
+            # if repeat consecutive action happens more than criteria, send "action"
+            if self.action_con >= 3:
+                self.is_moving = True
+                print("set is_moving to True")
+                self.action_con = 0
+                print("reset action_con = 0")
+                send_command(s, action)
+                print("send command done")
+
+        if self.is_moving:
+            if action == "neutral" or power < self.avg_power:
+                send_command(s, "stop")
+                self.is_moving = False
 
     # callbacks functions
     def on_create_session_done(self, *args, **kwargs):
@@ -229,6 +150,10 @@ class LiveAdvance:
         """
         data = kwargs.get("data")
         print("mc data: {}".format(data))
+        action = data["action"]
+        power = data["power"]
+        time = data["time"]
+        self.filter_command(action, power)
 
     def on_get_mc_active_action_done(self, *args, **kwargs):
         data = kwargs.get("data")
@@ -286,8 +211,13 @@ def main():
     your_app_client_id = "vM1pkIlN5DjGKwgtQKto49fG50CnS5yKgrp1g2Ve"
     your_app_client_secret = "rPbxdGZs2Amh1YRSNeKRabNaaN0rJMQLwE2ZLGSQBMk5cT6fY1VZtL3cGdzSXfHKqm04eGXccBIBLKLpwjwTHTSolu9hUWhPn7wSfL0r6mwOXjtTyhzEEdz6MQ0sOiVD"
 
+    # connect to the ESP
+    s.connect((host, port))
+    print("successfully connected to ESP")
+
     # Init live advance
-    l = LiveAdvance(your_app_client_id, your_app_client_secret)
+    print("start live_advance")
+    l = StreamCommand(your_app_client_id, your_app_client_secret)
 
     trained_profile_name = "Poon"  # Please set a trained profile name here
     l.start(trained_profile_name)
